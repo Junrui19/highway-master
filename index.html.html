@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="公路規劃大師">
+<meta name="theme-color" content="#101820">
+<title>公路規劃大師</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{color-scheme:dark;--bg:#101820;--panel:#18232d;--muted:#9eb0bf;--accent:#f4b942}
+*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans TC",sans-serif;background:var(--bg);color:#fff}
+body{display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom)}
+header{height:54px;display:flex;align-items:center;justify-content:space-between;padding:0 15px;background:#101820;border-bottom:1px solid #2c3a46;flex-shrink:0}
+.brand{font-weight:800;letter-spacing:.04em}.brand small{display:block;font-size:9px;color:var(--muted);font-weight:500;letter-spacing:.16em}
+#map{flex:1;min-height:150px;background:#dce5e8}
+.panel{background:var(--panel);padding:11px 12px 14px;border-top:1px solid #33414c;flex-shrink:0}
+.section-label{font-size:11px;color:var(--muted);margin-bottom:7px}
+.types{display:flex;gap:7px;overflow-x:auto;padding-bottom:9px;scrollbar-width:none}.types::-webkit-scrollbar{display:none}
+.type{border:1px solid #40515e;border-radius:20px;padding:8px 11px;white-space:nowrap;background:#202e39;color:#eaf0f4;font-size:12px}
+.type.active{border-color:var(--accent);background:#47391f;color:#fff}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+.actions{display:grid;grid-template-columns:1fr 1fr 1.25fr;gap:7px}
+button{font:inherit;cursor:pointer}
+.action{border:1px solid #455662;border-radius:11px;padding:11px 5px;background:#24323d;color:white;font-size:12px}
+.action.primary{background:var(--accent);border-color:var(--accent);color:#17202a;font-weight:800}
+.action:disabled{opacity:.35}
+.stats{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-bottom:9px}
+#roadList{max-height:90px;overflow:auto;margin-top:8px;font-size:11px;color:#d5dfe6}
+.roadrow{display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid #2d3a45}
+.leaflet-control-attribution{font-size:9px!important}
+.leaflet-control-zoom a{background:#18232d!important;color:white!important;border-color:#40515e!important}
+.toast{position:absolute;z-index:1000;top:65px;left:50%;transform:translateX(-50%);background:#15232d;border:1px solid #455662;border-radius:20px;padding:8px 13px;font-size:12px;white-space:nowrap;box-shadow:0 4px 18px #0005;pointer-events:none;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+.leaflet-container{font-family:inherit}
+</style>
+</head>
+<body>
+<header>
+ <div class="brand">🛣️ 公路規劃大師<small>HIGHWAY MASTER · MOBILE PROTOTYPE</small></div>
+ <button class="action" id="baseBtn" style="padding:8px 10px">地圖樣式</button>
+</header>
+<div id="map"></div>
+<div class="toast" id="toast">點擊地圖新增道路節點</div>
+<section class="panel">
+ <div class="section-label">選擇道路類型</div>
+ <div class="types" id="types"></div>
+ <div class="stats"><span id="nodeCount">草稿節點：0</span><span id="roadCount">已建道路：0 條</span></div>
+ <div class="actions">
+  <button class="action" id="undo">↶ 復原節點</button>
+  <button class="action" id="clear">清除草稿</button>
+  <button class="action primary" id="finish" disabled>完成道路</button>
+ </div>
+ <div id="roadList"></div>
+</section>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+const kinds=[
+ {name:"國道高速公路",color:"#1769d2",weight:7},
+ {name:"快速道路",color:"#ef8b24",weight:6},
+ {name:"省道",color:"#239b62",weight:5},
+ {name:"一般道路",color:"#687782",weight:4},
+ {name:"高架道路",color:"#9b65d5",weight:6,dash:"8 5"},
+ {name:"地下道路",color:"#9a7656",weight:5,dash:"3 5"}
+];
+let selected=0,draft=[],roads=[],satellite=false;
+const map=L.map('map',{zoomControl:true}).setView([22.9997,120.2270],12);
+const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
+const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
+let draftLine=null,draftMarkers=[];
+const $=id=>document.getElementById(id);
+function toast(msg){const el=$('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1700)}
+function renderTypes(){
+ $('types').innerHTML='';
+ kinds.forEach((k,i)=>{const b=document.createElement('button');b.className='type'+(i===selected?' active':'');b.innerHTML='<span class="dot" style="background:'+k.color+'"></span>'+k.name;b.onclick=()=>{selected=i;renderTypes();refreshDraft()};$('types').appendChild(b)});
+}
+function distanceKm(points){let total=0;for(let i=1;i<points.length;i++)total+=map.distance(points[i-1],points[i]);return total/1000}
+function refreshDraft(){
+ if(draftLine)map.removeLayer(draftLine);
+ draftLine=null;
+ if(draft.length>1){const k=kinds[selected];draftLine=L.polyline(draft,{color:k.color,weight:k.weight,dashArray:k.dash||null,opacity:.95}).addTo(map)}
+ draftMarkers.forEach(m=>map.removeLayer(m));draftMarkers=[];
+ draft.forEach(pt=>draftMarkers.push(L.circleMarker(pt,{radius:5,color:'#fff',weight:2,fillColor:kinds[selected].color,fillOpacity:1}).addTo(map)));
+ $('nodeCount').textContent='草稿節點：'+draft.length;
+ $('finish').disabled=draft.length<2;
+}
+function updateRoads(){
+ $('roadCount').textContent='已建道路：'+roads.length+' 條';
+ $('roadList').innerHTML=roads.slice().reverse().map(r=>'<div class="roadrow"><span>'+r.name+'</span><span>'+r.km.toFixed(2)+' km</span></div>').join('');
+}
+map.on('click',e=>{draft.push(e.latlng);refreshDraft();toast('已新增道路節點')});
+$('undo').onclick=()=>{if(draft.length){draft.pop();refreshDraft()}};
+$('clear').onclick=()=>{draft=[];refreshDraft();toast('草稿已清除')};
+$('finish').onclick=()=>{
+ if(draft.length<2)return;
+ const defaultName=kinds[selected].name+' '+(roads.length+1);
+ const name=prompt('請輸入道路名稱',defaultName);
+ if(name===null)return;
+ const k=kinds[selected],pts=draft.slice();
+ L.polyline(pts,{color:k.color,weight:k.weight,dashArray:k.dash||null,opacity:.95}).addTo(map);
+ roads.push({name:name.trim()||defaultName,km:distanceKm(pts)});
+ draft=[];refreshDraft();updateRoads();toast('道路已加入本次規劃');
+};
+$('baseBtn').onclick=()=>{
+ satellite=!satellite;
+ if(satellite){map.removeLayer(street);sat.addTo(map);$('baseBtn').textContent='一般地圖'}
+ else{map.removeLayer(sat);street.addTo(map);$('baseBtn').textContent='衛星地圖'}
+};
+renderTypes();updateRoads();refreshDraft();
+setTimeout(()=>toast('點擊地圖開始繪製道路'),700);
+})();
+</script>
+</body>
+</html>
