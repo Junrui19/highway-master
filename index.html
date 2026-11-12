@@ -2,12 +2,12 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="公路規劃大師">
 <meta name="theme-color" content="#101820">
-<title>公路規劃大師</title>
+<title>公路規劃大師 V2.0</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 :root{color-scheme:dark;--bg:#101820;--panel:#18232d;--muted:#9eb0bf;--accent:#f4b942}
@@ -35,17 +35,26 @@ button{font:inherit;cursor:pointer}
 .toast{position:absolute;z-index:1000;top:65px;left:50%;transform:translateX(-50%);background:#15232d;border:1px solid #455662;border-radius:20px;padding:8px 13px;font-size:12px;white-space:nowrap;box-shadow:0 4px 18px #0005;pointer-events:none;opacity:0;transition:opacity .2s}
 .toast.show{opacity:1}
 .leaflet-container{font-family:inherit}
+
+body{height:100dvh}header{gap:8px;height:58px;padding:0 12px}.brand{font-size:15px}.brand small{font-size:9px;letter-spacing:.08em}
+#map{position:relative;min-height:130px}.panel{padding:10px 12px;max-height:48dvh;overflow:auto}.roadrow span:first-child{overflow-wrap:anywhere;margin-right:8px}
+.maptools{display:flex;gap:6px}.maptools button{min-height:40px;padding:8px}.base-switch{display:flex;gap:0;border:1px solid #455662;border-radius:10px;overflow:hidden;flex-shrink:0}.base-switch button{border:0;border-radius:0;min-height:38px;padding:7px 10px;background:#24323d;color:#d5dfe6;font-size:12px}.base-switch button[aria-pressed=true]{background:#f4b942;color:#17202a;font-weight:800}
+.statusbar{padding:6px 12px;background:#14232c;color:#9fe0bc;font-size:11px;flex-shrink:0;border-bottom:1px solid #30414e}.statusbar.error{background:#44291b;color:#ffd5aa}.notice{font-size:11px;line-height:1.5;padding:7px 12px;background:#44391d;color:#ffdf99;flex-shrink:0}.notice[hidden]{display:none}
+.tools{display:flex;gap:7px;align-items:center;margin-top:9px}.tools .action{flex:1;padding:9px 6px}.toggle{display:flex;align-items:center;gap:5px;font-size:12px;white-space:nowrap;min-height:36px}.toggle input{accent-color:#f4b942;width:17px;height:17px}.legend{color:#b6c6d0;font-size:10px;margin-top:6px;line-height:1.5}.legend a{color:#c5dce6}.city-label{background:#fffdf0e8;border:1px solid #b27e30;color:#4d351c;font-size:11px;font-weight:600;padding:2px 5px;box-shadow:0 1px 4px #0002}.city-label:before{display:none}.toast{max-width:94vw;white-space:normal;text-align:center;top:105px}.leaflet-popup-content{color:#24323d}.empty{color:#92a8b5;padding:4px 0}.action:focus-visible,.type:focus-visible{outline:2px solid white;outline-offset:2px}
+@media(max-height:600px){header{height:48px}.legend{display:none}.panel{max-height:49dvh}#roadList{max-height:45px}.type{padding:6px 9px}.action{padding:8px 5px}}
 </style>
 </head>
 <body>
 <header>
- <div class="brand">🛣️ 公路規劃大師<small>HIGHWAY MASTER · MOBILE PROTOTYPE</small></div>
- <button class="action" id="baseBtn" style="padding:8px 10px">地圖樣式</button>
+ <div class="brand">🛣️ 公路規劃大師<small>V2.0 · NLSC 臺灣地圖</small></div>
+ <div class="base-switch" role="group" aria-label="底圖切換"><button id="terrainBtn" aria-pressed="true">地形圖</button><button id="roadBtn" aria-pressed="false">道路圖</button></div>
 </header>
-<div id="map"></div>
-<div class="toast" id="toast">點擊地圖新增道路節點</div>
-<section class="panel">
- <div class="section-label">選擇道路類型</div>
+<div id="saveStatus" class="statusbar" role="status" aria-live="polite">正在讀取本機規劃…</div>
+<div id="notice" class="notice" role="alert" hidden></div>
+<div id="map" aria-label="臺灣道路規劃地圖"></div>
+<div class="toast" id="toast" role="status"></div>
+<section class="panel" aria-label="道路規劃工具">
+ <div class="section-label">選擇道路類型 · 點地圖新增節點</div>
  <div class="types" id="types"></div>
  <div class="stats"><span id="nodeCount">草稿節點：0</span><span id="roadCount">已建道路：0 條</span></div>
  <div class="actions">
@@ -54,63 +63,162 @@ button{font:inherit;cursor:pointer}
   <button class="action primary" id="finish" disabled>完成道路</button>
  </div>
  <div id="roadList"></div>
+ <div class="tools">
+  <label class="toggle"><input type="checkbox" id="settlements" checked>聚落標記</label>
+  <button class="action" id="exportBtn">匯出備份</button>
+  <button class="action" id="importBtn">匯入備份</button>
+  <input type="file" id="importFile" accept=".json,application/json" hidden>
+ </div>
+ <div class="legend">● 主要城市／聚落參考點，非人口密度圖。<br>規劃自動存於此裝置；請定期匯出備份，換手機後可匯入。<br>地形圖：經建版地形圖；近距離顯示含等高線電子地圖。</div>
 </section>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 (function(){
-const kinds=[
- {name:"國道高速公路",color:"#1769d2",weight:7},
- {name:"快速道路",color:"#ef8b24",weight:6},
- {name:"省道",color:"#239b62",weight:5},
- {name:"一般道路",color:"#687782",weight:4},
- {name:"高架道路",color:"#9b65d5",weight:6,dash:"8 5"},
- {name:"地下道路",color:"#9a7656",weight:5,dash:"3 5"}
-];
-let selected=0,draft=[],roads=[],satellite=false;
-const map=L.map('map',{zoomControl:true}).setView([22.9997,120.2270],12);
-const street=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map);
-const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
-let draftLine=null,draftMarkers=[];
+'use strict';
 const $=id=>document.getElementById(id);
-function toast(msg){const el=$('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),1700)}
+function status(msg,error=false){$('saveStatus').textContent=msg;$('saveStatus').classList.toggle('error',error)}
+function notice(msg){$('notice').textContent=msg;$('notice').hidden=!msg}
+function toast(msg){const el=$('toast');el.textContent=msg;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2300)}
+if(!window.L){status('地圖元件載入失敗，請確認網路後重新開啟。',true);return}
+const kinds=[
+ {name:'國道高速公路',color:'#1769d2',weight:7},
+ {name:'快速道路',color:'#ef8b24',weight:6},
+ {name:'省道',color:'#239b62',weight:5},
+ {name:'一般道路',color:'#687782',weight:4},
+ {name:'高架道路',color:'#9b65d5',weight:6,dash:'8 5'},
+ {name:'地下道路',color:'#9a7656',weight:5,dash:'3 5'}
+];
+// Stable key: future application releases should migrate this schema, not discard it.
+const KEY='highway-master:plan:v2';
+let selected=0,draft=[],roads=[],base='terrain',showSettlements=true;
+let baseline=null,locked=false,unreadable=false,ready=false,dirty=false,saveTimer;
+const initialView={center:[22.9997,120.2270],zoom:12};
+const finite=n=>typeof n==='number'&&Number.isFinite(n);
+function point(p){if(!Array.isArray(p)||p.length!==2||!finite(p[0])||!finite(p[1])||Math.abs(p[0])>85.051129||Math.abs(p[1])>180)throw Error('座標無效');return [p[0],p[1]]}
+function points(ps,min=0){if(!Array.isArray(ps)||ps.length<min||ps.length>20000)throw Error('節點數量無效');return ps.map(point)}
+function validate(data){
+ if(!data||data.app!=='highway-master'||data.version!==2)throw Error('不是支援的公路規劃大師 V2 備份');
+ if(!Array.isArray(data.roads)||data.roads.length>2000)throw Error('道路資料無效');
+ let total=0;
+ const cleanRoads=data.roads.map(r=>{
+  if(!r||typeof r.name!=='string'||!r.name.trim()||r.name.length>120||!Number.isInteger(r.kind)||r.kind<0||r.kind>=kinds.length)throw Error('道路名稱或類型無效');
+  const pts=points(r.points,2);total+=pts.length;return {name:r.name,kind:r.kind,points:pts};
+ });
+ const cleanDraft=points(data.draft);total+=cleanDraft.length;if(total>50000)throw Error('節點總數超過上限');
+ if(!Number.isInteger(data.selected)||data.selected<0||data.selected>=kinds.length)throw Error('草稿類型無效');
+ if(!['terrain','road'].includes(data.base)||typeof data.showSettlements!=='boolean')throw Error('地圖設定無效');
+ if(!data.view||!finite(data.view.zoom)||data.view.zoom<7||data.view.zoom>19)throw Error('地圖視角無效');
+ return {app:'highway-master',version:2,roads:cleanRoads,draft:cleanDraft,selected:data.selected,base:data.base,showSettlements:data.showSettlements,view:{center:point(data.view.center),zoom:data.view.zoom},savedAt:typeof data.savedAt==='string'?data.savedAt:''};
+}
+let loaded=null;
+try{baseline=localStorage.getItem(KEY);if(baseline!==null){loaded=validate(JSON.parse(baseline));({selected,draft,roads,base,showSettlements}=loaded)}}
+catch(e){locked=true;unreadable=baseline!==null;status('無法讀取既有資料；自動儲存已暫停，請先匯出備份。',true)}
+const map=L.map('map',{zoomControl:true,minZoom:7,maxZoom:19,maxBounds:[[17,115],[28,125]],maxBoundsViscosity:.8}).setView((loaded?loaded.view:initialView).center,(loaded?loaded.view:initialView).zoom);
+const attribution='<a href="https://maps.nlsc.gov.tw/" target="_blank" rel="noopener">內政部國土測繪中心</a>';
+const tile=layer=>'https://wmts.nlsc.gov.tw/wmts/'+layer+'/default/GoogleMapsCompatible/{z}/{y}/{x}';
+const roadMap=L.tileLayer(tile('EMAP6'),{maxNativeZoom:19,maxZoom:19,noWrap:true,attribution});
+const contourMap=L.tileLayer(tile('EMAP5'),{maxNativeZoom:19,maxZoom:19,noWrap:true,attribution});
+const topoMap=L.tileLayer(tile('B25000'),{minZoom:7,maxZoom:16,maxNativeZoom:16,noWrap:true,attribution});
+let activeLayers=[];
+function applyBase(){
+ activeLayers.forEach(l=>map.removeLayer(l));
+ activeLayers=base==='road'?[roadMap]:map.getZoom()>16?[contourMap]:[contourMap,topoMap];
+ activeLayers.forEach(l=>l.addTo(map));
+ $('terrainBtn').setAttribute('aria-pressed',String(base==='terrain'));
+ $('roadBtn').setAttribute('aria-pressed',String(base==='road'));
+}
+let tilesFailed=false;
+[roadMap,contourMap,topoMap].forEach(layer=>layer.on('tileerror',()=>{if(!tilesFailed){tilesFailed=true;notice('部分官方圖磚暫時無法載入，可切換底圖或稍後重試；已儲存規劃仍保留。')}}));
+const roadLayers=L.layerGroup().addTo(map),draftLayers=L.layerGroup().addTo(map),cityLayers=L.layerGroup();
+// Curated reference locations. Marker radius is a display style, not a population estimate.
+const cities=[
+ ['臺北',25.0375,121.5637,1],['板橋',25.0122,121.465,1],['基隆',25.1276,121.7392,0],['桃園',24.9937,121.301,1],['中壢',24.9536,121.225,0],
+ ['新竹',24.8066,120.9686,1],['竹北',24.8387,121.0177,0],['苗栗',24.5602,120.8214,0],['頭份',24.686,120.909,0],['臺中',24.1477,120.6736,1],
+ ['豐原',24.2521,120.723,0],['彰化',24.0756,120.544,0],['員林',23.9589,120.571,0],['南投',23.909,120.684,0],['埔里',23.965,120.967,0],
+ ['斗六',23.711,120.541,0],['虎尾',23.708,120.434,0],['嘉義',23.4801,120.4491,1],['朴子',23.464,120.247,0],['臺南',22.997,120.212,1],
+ ['新營',23.3069,120.311,0],['永康',23.027,120.257,0],['高雄',22.6273,120.3014,1],['岡山',22.793,120.296,0],['鳳山',22.626,120.359,0],
+ ['屏東',22.676,120.494,0],['潮州',22.55,120.542,0],['恆春',22.005,120.744,0],['宜蘭',24.757,121.753,0],['羅東',24.677,121.766,0],
+ ['花蓮',23.976,121.604,0],['玉里',23.335,121.315,0],['臺東',22.755,121.15,0],['馬公',23.566,119.578,0],['金城',24.432,118.317,0],['南竿',26.16,119.949,0]
+];
+function renderCities(){
+ cityLayers.clearLayers();
+ if(showSettlements){const zoom=map.getZoom();cities.filter(c=>zoom>=10||c[3]||zoom>=9&&['花蓮','臺東','宜蘭','馬公','金城','南竿','屏東','基隆'].includes(c[0])).forEach(c=>{
+  const popup=document.createElement('div');popup.textContent=c[0]+'｜主要城市／聚落參考點（非人口統計）';
+  const m=L.circleMarker([c[1],c[2]],{radius:c[3]?6:4,color:'#85581f',weight:1.5,fillColor:'#f4b942',fillOpacity:.85,bubblingMouseEvents:false}).bindPopup(popup).addTo(cityLayers);
+  if(zoom>=11||zoom>=8&&c[3])m.bindTooltip(c[0],{permanent:true,direction:'right',className:'city-label',offset:[6,0]});
+ });cityLayers.addTo(map)}else map.removeLayer(cityLayers);
+ $('settlements').checked=showSettlements;
+}
+function snapshot(){const c=map.getCenter();return {app:'highway-master',version:2,savedAt:new Date().toISOString(),roads,draft,selected,base,showSettlements,view:{center:[c.lat,c.lng],zoom:map.getZoom()}}}
+function savedLabel(data){const time=new Date(data.savedAt);return Number.isNaN(time.getTime())?'已還原本機規劃':'已存於此裝置 · '+time.toLocaleTimeString('zh-TW',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function save(){
+ clearTimeout(saveTimer);if(!ready||locked)return false;
+ try{
+  if(localStorage.getItem(KEY)!==baseline){locked=true;status('另一個視窗已更新規劃；請先匯出目前備份，再重新開啟。',true);return false}
+  const data=validate(snapshot()),raw=JSON.stringify(data);
+  localStorage.setItem(KEY,raw);baseline=raw;dirty=false;status(savedLabel(data));return true;
+ }catch(e){status('尚未儲存：本機儲存空間不足或被限制，請立即匯出備份。',true);return false}
+}
+function changed(){dirty=true;save()}
+function scheduleSave(){if(!ready||locked)return;dirty=true;clearTimeout(saveTimer);saveTimer=setTimeout(save,250)}
 function renderTypes(){
- $('types').innerHTML='';
- kinds.forEach((k,i)=>{const b=document.createElement('button');b.className='type'+(i===selected?' active':'');b.innerHTML='<span class="dot" style="background:'+k.color+'"></span>'+k.name;b.onclick=()=>{selected=i;renderTypes();refreshDraft()};$('types').appendChild(b)});
+ $('types').replaceChildren();kinds.forEach((k,i)=>{const b=document.createElement('button');b.className='type'+(i===selected?' active':'');b.setAttribute('aria-pressed',String(i===selected));
+ const dot=document.createElement('span');dot.className='dot';dot.style.background=k.color;b.append(dot,document.createTextNode(k.name));
+ b.onclick=()=>{selected=i;renderTypes();renderDraft();changed()};$('types').appendChild(b)})
 }
-function distanceKm(points){let total=0;for(let i=1;i<points.length;i++)total+=map.distance(points[i-1],points[i]);return total/1000}
-function refreshDraft(){
- if(draftLine)map.removeLayer(draftLine);
- draftLine=null;
- if(draft.length>1){const k=kinds[selected];draftLine=L.polyline(draft,{color:k.color,weight:k.weight,dashArray:k.dash||null,opacity:.95}).addTo(map)}
- draftMarkers.forEach(m=>map.removeLayer(m));draftMarkers=[];
- draft.forEach(pt=>draftMarkers.push(L.circleMarker(pt,{radius:5,color:'#fff',weight:2,fillColor:kinds[selected].color,fillOpacity:1}).addTo(map)));
- $('nodeCount').textContent='草稿節點：'+draft.length;
- $('finish').disabled=draft.length<2;
+function style(kind){const k=kinds[kind];return {color:k.color,weight:k.weight,dashArray:k.dash||null,opacity:.95}}
+function distanceKm(ps){let n=0;for(let i=1;i<ps.length;i++)n+=map.distance(ps[i-1],ps[i]);return n/1000}
+function renderDraft(){
+ draftLayers.clearLayers();if(draft.length>1)L.polyline(draft,style(selected)).addTo(draftLayers);
+ draft.forEach(pt=>L.circleMarker(pt,{radius:5,color:'#fff',weight:2,fillColor:kinds[selected].color,fillOpacity:1,interactive:false}).addTo(draftLayers));
+ $('nodeCount').textContent='草稿節點：'+draft.length;$('finish').disabled=draft.length<2;$('undo').disabled=!draft.length;$('clear').disabled=!draft.length;
 }
-function updateRoads(){
- $('roadCount').textContent='已建道路：'+roads.length+' 條';
- $('roadList').innerHTML=roads.slice().reverse().map(r=>'<div class="roadrow"><span>'+r.name+'</span><span>'+r.km.toFixed(2)+' km</span></div>').join('');
+function renderRoads(){
+ roadLayers.clearLayers();$('roadList').replaceChildren();$('roadCount').textContent='已建道路：'+roads.length+' 條';
+ roads.forEach(r=>{const content=document.createElement('div');content.textContent=r.name+' · '+kinds[r.kind].name+' · '+distanceKm(r.points).toFixed(2)+' km';L.polyline(r.points,{...style(r.kind),bubblingMouseEvents:false}).bindPopup(content).addTo(roadLayers)});
+ roads.slice().reverse().forEach(r=>{const row=document.createElement('div');row.className='roadrow';const name=document.createElement('span'),km=document.createElement('span');name.textContent=r.name;km.textContent=distanceKm(r.points).toFixed(2)+' km';row.append(name,km);$('roadList').appendChild(row)});
+ if(!roads.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='尚無道路，先在地圖上放兩個節點。';$('roadList').appendChild(empty)}
 }
-map.on('click',e=>{draft.push(e.latlng);refreshDraft();toast('已新增道路節點')});
-$('undo').onclick=()=>{if(draft.length){draft.pop();refreshDraft()}};
-$('clear').onclick=()=>{draft=[];refreshDraft();toast('草稿已清除')};
+map.on('click',e=>{if(draft.length>=20000){toast('草稿節點已達上限，請完成道路');return}draft.push([e.latlng.lat,e.latlng.lng]);renderDraft();changed();toast('已新增道路節點')});
+map.on('moveend',scheduleSave);
+map.on('zoomend',()=>{applyBase();renderCities();scheduleSave()});
+$('undo').onclick=()=>{if(draft.length){draft.pop();renderDraft();changed()}};
+$('clear').onclick=()=>{if(draft.length>1&&!confirm('清除目前未完成的草稿？已完成道路會保留。'))return;draft=[];renderDraft();changed();toast('草稿已清除')};
 $('finish').onclick=()=>{
- if(draft.length<2)return;
- const defaultName=kinds[selected].name+' '+(roads.length+1);
- const name=prompt('請輸入道路名稱',defaultName);
- if(name===null)return;
- const k=kinds[selected],pts=draft.slice();
- L.polyline(pts,{color:k.color,weight:k.weight,dashArray:k.dash||null,opacity:.95}).addTo(map);
- roads.push({name:name.trim()||defaultName,km:distanceKm(pts)});
- draft=[];refreshDraft();updateRoads();toast('道路已加入本次規劃');
+ if(draft.length<2)return;const defaultName=kinds[selected].name+' '+(roads.length+1);const name=prompt('請輸入道路名稱（最多 120 字）',defaultName);if(name===null)return;
+ const clean=name.trim()||defaultName;if(clean.length>120){toast('道路名稱請保持在 120 字內');return}
+ roads.push({name:clean,kind:selected,points:draft.map(p=>p.slice())});draft=[];renderRoads();renderDraft();changed();toast(locked?'道路已建立；請匯出備份':dirty?'道路已建立；本機儲存失敗，請匯出備份':'道路已建立並儲存');
 };
-$('baseBtn').onclick=()=>{
- satellite=!satellite;
- if(satellite){map.removeLayer(street);sat.addTo(map);$('baseBtn').textContent='一般地圖'}
- else{map.removeLayer(sat);street.addTo(map);$('baseBtn').textContent='衛星地圖'}
+$('terrainBtn').onclick=()=>{base='terrain';applyBase();changed()};$('roadBtn').onclick=()=>{base='road';applyBase();changed()};
+$('settlements').onchange=()=>{showSettlements=$('settlements').checked;renderCities();changed()};
+function download(raw,filename){const url=URL.createObjectURL(new Blob([raw],{type:'application/json;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)}
+$('exportBtn').onclick=()=>{
+ const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+ // Preserve unreadable source bytes rather than destroying an unrecoverable saved plan.
+ if(unreadable&&baseline!==null){download(baseline,'Highway_Master_raw_recovery_'+stamp+'.json');toast('已匯出原始資料，請保留供復原使用');return}
+ download(JSON.stringify(snapshot(),null,2),'Highway_Master_backup_'+stamp+'.json');toast('已產生備份；請確認儲存到「檔案」App');
 };
-renderTypes();updateRoads();refreshDraft();
-setTimeout(()=>toast('點擊地圖開始繪製道路'),700);
+$('importBtn').onclick=()=>$('importFile').click();
+$('importFile').onchange=async e=>{
+ const file=e.target.files[0];if(!file)return;
+ try{
+  if(file.size>8*1024*1024)throw Error('備份檔超過 8 MB');
+  const next=validate(JSON.parse(await file.text()));
+  if(!confirm('此備份有 '+next.roads.length+' 條道路、'+next.draft.length+' 個草稿節點。匯入會取代此裝置目前規劃，建議先匯出備份。確定匯入？'))return;
+  next.savedAt=new Date().toISOString();const raw=JSON.stringify(next);
+  // Write first: a failed import must leave both the visible plan and previous bytes intact.
+  try{localStorage.setItem(KEY,raw)}catch(err){throw Error('無法寫入本機儲存空間；原有規劃未變更')}
+  clearTimeout(saveTimer);ready=false;baseline=raw;loaded=next;locked=false;unreadable=false;dirty=false;({selected,draft,roads,base,showSettlements}=next);
+  map.setView(next.view.center,next.view.zoom);applyBase();renderCities();renderTypes();renderRoads();renderDraft();ready=true;status(savedLabel(next));toast('備份已匯入並儲存');
+ }catch(err){alert('匯入失敗：'+(err instanceof SyntaxError?'JSON 檔案格式錯誤':err.message)+'。目前規劃仍保留。')}
+ finally{e.target.value=''}
+};
+window.addEventListener('pagehide',()=>{if(dirty)save()});
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&dirty)save()});
+window.addEventListener('storage',e=>{if(e.key===KEY&&e.newValue!==baseline){locked=true;status('另一個視窗已更新規劃；請先匯出目前備份，再重新開啟。',true)}});
+applyBase();renderCities();renderTypes();renderRoads();renderDraft();ready=true;
+if(!locked){if(loaded)status(savedLabel(loaded));else save()}
+setTimeout(()=>toast(loaded?'已還原 '+roads.length+' 條道路及 '+draft.length+' 個草稿節點':'點擊地圖開始繪製；每次操作會自動儲存'),600);
 })();
 </script>
 </body>
